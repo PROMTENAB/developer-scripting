@@ -213,10 +213,17 @@ FB_BTN_SHOW_LAYERS = 25
 FB_BTN_PICK_LAYER = 26
 FB_BTN_SHOW_GROUPS = 27
 FB_BTN_PICK_MOVE_LAYERS = 28
+FB_BTN_PICK_OBJECTS = 29
 
 SAMPLE_SIZE = 5
 
-FB_STATE = {"groups": [], "did": None, "layer_names": [], "selected_move_layers": set()}
+FB_STATE = {
+    "groups": [],
+    "did": None,
+    "layer_names": [],
+    "selected_move_layers": set(),
+    "selected_object_handles": None,
+}
 ACTION = {"name": None, "groups": [], "new_layer": None}
 
 
@@ -513,6 +520,167 @@ def _group_idxs_for_layers(groups, layer_names):
     return [i for i, g in enumerate(groups) if g.get("current_layer", "") in allowed]
 
 
+def _handle_key(h):
+    return str(h)
+
+
+def _collect_unique_objects_from_groups(groups):
+    out = []
+    seen = set()
+    for g in groups:
+        for h in g.get("handles", []):
+            k = _handle_key(h)
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append({
+                "key": k,
+                "handle": h,
+                "class_name": g.get("class_name", ""),
+                "current_layer": g.get("current_layer", ""),
+                "suggested_layer": g.get("suggested_layer", ""),
+            })
+    return out
+
+
+def _filter_groups_by_handles(groups, selected_handles):
+    allowed = set(_handle_key(h) for h in selected_handles)
+    filtered = []
+    for g in groups:
+        hs = [h for h in g.get("handles", []) if _handle_key(h) in allowed]
+        if not hs:
+            continue
+        ng = dict(g)
+        ng["handles"] = hs
+        ng["count"] = len(hs)
+        filtered.append(ng)
+    return filtered
+
+
+def _choose_objects_with_checkboxes(groups, preselected_handles=None):
+    objects = _collect_unique_objects_from_groups(groups)
+    if not objects:
+        vs.AlrtDialog("Inga objekt hittades i valda grupper.")
+        return []
+
+    PAGE_SIZE = 10
+    CHK_BASE = 400
+    BTN_PREV = 500
+    BTN_NEXT = 501
+    BTN_ALL = 502
+    BTN_NONE = 503
+    TXT_INFO = 504
+    TXT_HINT = 505
+
+    pre = set(_handle_key(h) for h in (preselected_handles or []))
+    if not pre:
+        pre = set(o["key"] for o in objects)
+
+    state = {"page": 0, "sel": set(pre)}
+    pages = (len(objects) + PAGE_SIZE - 1) // PAGE_SIZE
+
+    did = vs.CreateLayout("Steg B - Välj objekt i valda grupper", False, "OK", "Avbryt")
+    vs.CreateStaticText(did, TXT_INFO, "", 70)
+    vs.CreateStaticText(did, TXT_HINT, "Kryssa de objekt som ska flyttas.", 70)
+    for i in range(PAGE_SIZE):
+        vs.CreateCheckBox(did, CHK_BASE + i, "")
+    vs.CreatePushButton(did, BTN_PREV, "Föregående")
+    vs.CreatePushButton(did, BTN_NEXT, "Nästa")
+    vs.CreatePushButton(did, BTN_ALL, "Markera alla")
+    vs.CreatePushButton(did, BTN_NONE, "Rensa alla")
+
+    vs.SetFirstLayoutItem(did, TXT_INFO)
+    vs.SetBelowItem(did, TXT_INFO, TXT_HINT, 2, 0)
+    for i in range(PAGE_SIZE):
+        if i == 0:
+            vs.SetBelowItem(did, TXT_HINT, CHK_BASE + i, 4, 0)
+        else:
+            vs.SetBelowItem(did, CHK_BASE + i - 1, CHK_BASE + i, 2, 0)
+    vs.SetBelowItem(did, CHK_BASE + PAGE_SIZE - 1, BTN_PREV, 8, 0)
+    vs.SetRightItem(did, BTN_PREV, BTN_NEXT, 8, 0)
+    vs.SetRightItem(did, BTN_NEXT, BTN_ALL, 8, 0)
+    vs.SetRightItem(did, BTN_ALL, BTN_NONE, 8, 0)
+
+    def _slice():
+        a = state["page"] * PAGE_SIZE
+        b = min(a + PAGE_SIZE, len(objects))
+        return a, b
+
+    def _save_page():
+        a, b = _slice()
+        for i in range(PAGE_SIZE):
+            idx = a + i
+            if idx >= b:
+                continue
+            o = objects[idx]
+            checked = bool(vs.GetBooleanItem(did, CHK_BASE + i))
+            if checked:
+                state["sel"].add(o["key"])
+            else:
+                state["sel"].discard(o["key"])
+
+    def _load_page():
+        a, b = _slice()
+        vs.SetItemText(did, TXT_INFO, "Objekt {}-{} av {} (sida {}/{})".format(a + 1, b, len(objects), state["page"] + 1, pages))
+        for i in range(PAGE_SIZE):
+            idx = a + i
+            cid = CHK_BASE + i
+            if idx < b:
+                o = objects[idx]
+                label = "{}. {} | {} -> {}".format(idx + 1, o["class_name"], o["current_layer"], o["suggested_layer"])
+                vs.SetItemText(did, cid, label)
+                try:
+                    vs.SetBooleanItem(did, cid, o["key"] in state["sel"])
+                except Exception:
+                    pass
+                try:
+                    vs.EnableItem(did, cid, True)
+                except Exception:
+                    pass
+            else:
+                vs.SetItemText(did, cid, "")
+                try:
+                    vs.SetBooleanItem(did, cid, False)
+                except Exception:
+                    pass
+                try:
+                    vs.EnableItem(did, cid, False)
+                except Exception:
+                    pass
+
+    _load_page()
+
+    def _handler(item, data):
+        if item == BTN_PREV:
+            _save_page()
+            if state["page"] > 0:
+                state["page"] -= 1
+            _load_page()
+        elif item == BTN_NEXT:
+            _save_page()
+            if state["page"] < pages - 1:
+                state["page"] += 1
+            _load_page()
+        elif item == BTN_ALL:
+            state["sel"] = set(o["key"] for o in objects)
+            _load_page()
+        elif item == BTN_NONE:
+            state["sel"] = set()
+            _load_page()
+        return item
+
+    result = vs.RunLayoutDialog(did, _handler)
+    _save_page()
+    if result != 1:
+        return list(preselected_handles or [])
+
+    selected = []
+    for o in objects:
+        if o["key"] in state["sel"]:
+            selected.append(o["handle"])
+    return selected
+
+
 def _choose_move_layers_with_checkboxes(groups, preselected):
     all_layers = _unique_current_layers(groups)
     if not all_layers:
@@ -711,6 +879,7 @@ def confirm_move(groups):
 def build_dialog(groups):
     FB_STATE["groups"] = _normalize_groups(groups)
     FB_STATE["layer_names"] = _get_design_layer_names()
+    FB_STATE["selected_object_handles"] = None
 
     did = vs.CreateLayout("Regelavvikelser - Grupper", False, "Stäng", "")
     FB_STATE["did"] = did
@@ -732,6 +901,7 @@ def build_dialog(groups):
     vs.CreatePushButton(did, FB_BTN_APPLY, "Sätt lager på valda")
     vs.CreatePushButton(did, FB_BTN_SHOW_GROUPS, "Visa grupper")
     vs.CreatePushButton(did, FB_BTN_PICK_MOVE_LAYERS, "Välj lager att flytta")
+    vs.CreatePushButton(did, FB_BTN_PICK_OBJECTS, "Steg B: Välj objekt")
     vs.CreatePushButton(did, FB_BTN_ZOOM, "Zooma till")
     vs.CreatePushButton(did, FB_BTN_SAMPLE, "Visa exempel (5)")
     vs.CreatePushButton(did, FB_BTN_SELECT, "Markera alla")
@@ -754,7 +924,8 @@ def build_dialog(groups):
 
     vs.SetBelowItem(did, 103, FB_BTN_SHOW_GROUPS, 10, 0)
     vs.SetRightItem(did, FB_BTN_SHOW_GROUPS, FB_BTN_PICK_MOVE_LAYERS, 8, 0)
-    vs.SetRightItem(did, FB_BTN_PICK_MOVE_LAYERS, FB_BTN_ZOOM, 8, 0)
+    vs.SetRightItem(did, FB_BTN_PICK_MOVE_LAYERS, FB_BTN_PICK_OBJECTS, 8, 0)
+    vs.SetRightItem(did, FB_BTN_PICK_OBJECTS, FB_BTN_ZOOM, 8, 0)
     vs.SetRightItem(did, FB_BTN_ZOOM, FB_BTN_SAMPLE, 8, 0)
     vs.SetRightItem(did, FB_BTN_SAMPLE, FB_BTN_SELECT, 8, 0)
     vs.SetRightItem(did, FB_BTN_SELECT, FB_BTN_MOVE, 8, 0)
@@ -792,6 +963,15 @@ def _dialog_handler(item, data):
         rows_txt = _rows_to_compact_text(idxs)
         vs.SetItemText(did, FB_ROWS, rows_txt)
         vs.AlrtDialog("Valda lager: {} st.\nMatchande grupper: {} st.".format(len(selected_layers), len(idxs)))
+
+    elif item == FB_BTN_PICK_OBJECTS:
+        selected_groups = get_selected_groups(did)
+        if not selected_groups:
+            vs.AlrtDialog("Välj först grupper i radfältet (ex: 1,3,5-7).")
+        else:
+            chosen = _choose_objects_with_checkboxes(selected_groups, FB_STATE.get("selected_object_handles"))
+            FB_STATE["selected_object_handles"] = list(chosen)
+            vs.AlrtDialog("Valda objekt för flytt: {} st.".format(len(chosen)))
 
     elif item == FB_BTN_APPLY:
         selected = get_selected_groups(did)
@@ -833,6 +1013,12 @@ def _dialog_handler(item, data):
         if not selected:
             vs.AlrtDialog("Välj rader först.")
         else:
+            selected_handles = FB_STATE.get("selected_object_handles")
+            if selected_handles is not None:
+                selected = _filter_groups_by_handles(selected, selected_handles)
+                if not selected:
+                    vs.AlrtDialog("Inga objekt valda i Steg B för de valda grupperna.")
+                    return item
             _set_action_and_close(did, "move", selected)
 
     return item
