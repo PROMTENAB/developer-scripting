@@ -61,6 +61,9 @@ These are some introductory samples that demonstrate plug-ins for Vectorworks wr
 
 Often users would use external IDE to edit the Python scripts that Vectorworks executes. Modern IDEs provide intelli-sense information (information about the semantics of the code while typing). To help intelli-sense for Vectorworks Python script APIs, you can point your IDE to the file [vs.py (python file)](pages/files/vs.py) (download, and place it appropriately so the IDE could find it). This file is available in the Include folder of the SDK distribution. This way the IDE will know all Vectorworks Python functions and it would provide some information on the parameters and the behavior of the function. Note that those functions are empty and will not do anything if executed.
 
+For common setup issues, including errors caused by running an update fragment
+without the definitions from its original script, see [Python Debugging](pages/Python%20Debugging.md#troubleshooting-nameerror).
+
 It is possible to debug Python scripts in Vectorworks using a third-party application.
 
 See [Python Debugging](pages/Python%20Debugging.md) for more information.

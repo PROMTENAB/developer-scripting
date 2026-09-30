@@ -1,5 +1,43 @@
 Python is open source scripting engine and there are many free and paid IDEs that can hook into the engine and debug. I guess you can search and experiment with what is out there in the internet. Maybe you can find an easier way to make it work.
 
+## Troubleshooting `NameError`
+
+Python executes a script from top to bottom. A name must therefore be imported,
+assigned, or defined by earlier code before it is used. For example, this statement
+only updates an existing dictionary; it does not create one:
+
+```python
+DEFAULTS.update({"Hojdsystem": "RH 2000"})
+```
+
+If `DEFAULTS` has not already been assigned, Python reports
+`NameError: name 'DEFAULTS' is not defined`. Define the dictionary before updating
+it:
+
+```python
+DEFAULTS = {
+    "Projekt": "",
+    "Projektnr": "",
+    "Filnamn": "",
+    "Skala": "200",
+}
+
+DEFAULTS.update({
+    "Hojdsystem": "RH 2000",
+    "Koordinatsystem": "SWEREF 99 18 00",
+})
+```
+
+Alternatively, when the values above are the complete set of defaults, use one
+dictionary literal instead of calling `update`.
+
+A script fragment that also refers to application-specific names such as
+`ACTIONS`, `StopStep`, or helper functions must be appended to the original script
+that defines those names; fixing only the first missing name will otherwise expose
+the next one. When replacing the whole contents of a Vectorworks script resource,
+copy the complete script, including its imports, constants, helpers, and action
+table, rather than only a version-update fragment.
+
 ## Debugging with Aptana Studio
 
 I have experimented with [Aptana Studio](http://www.aptana.com) which is a version of [Eclipse](http://en.wikipedia.org/wiki/Eclipse_(software)).
